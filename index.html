@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>실시간 차종 검색기</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; margin: 40px; background-color: #f4f6f9; color: #333; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h2 { text-align: center; color: #1e293b; margin-bottom: 30px; }
+        .search-box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        input[type="text"] { width: 100%; padding: 14px; font-size: 16px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; outline: none; }
+        input[type="text"]:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
+        .table-container { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 14px 16px; border-bottom: 1px solid #e2e8f0; }
+        th { background-color: #3b82f6; color: white; font-weight: 600; position: sticky; top: 0; }
+        tr:hover { background-color: #f8fafc; }
+        .status-msg { text-align: center; padding: 30px; color: #64748b; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🚗 실시간 차종 검색 서비스</h2>
+    
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="검색어를 입력하세요 (예: 현대, 아반떼, 2024)..." disabled>
+    </div>
+
+    <div class="table-container">
+        <table id="resultTable">
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody">
+                <tr><td class="status-msg">구글 스프레드시트에서 차종 데이터를 불러오는 중입니다...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // ⚠️ [필수 변수 수정] 1단계에서 복사한 구글 스프레드시트 CSV 주소를 아래 큰따옴표 안에 붙여넣으세요.
+    const googleSheetCsvUrl = "여기에_복사한_주소를_넣으세요";
+
+    let carData = []; // 구글 시트에서 가져온 전체 데이터를 저장할 배열
+
+    // 페이지가 로드되면 구글 시트 데이터를 원격으로 원본을 가져옴
+    window.onload = function() {
+        if(googleSheetCsvUrl.includes("https://docs.google.com/spreadsheets/d/e/2PACX-1vS2Ge98aDBRGE-5gWXBb8PXOye9Ev6BPmefvtpVLIFa_8mnRVg45ZiZYuPUyJD0mc7kjvzLOBTS-6yZ/pub?gid=0&single=true&output=csv")) {
+            document.getElementById('tableBody').innerHTML = `<tr><td class="status-msg" style="color:red;">구글 시트 URL 설정이 필요합니다. 코드를 수정해주세요.</td></tr>`;
+            return;
+        }
+
+        // PapaParse 라이브러리를 이용해 구글 시트 CSV 링크 원격 로드
+        Papa.parse(googleSheetCsvUrl, {
+            download: true,
+            header: true, // 첫 줄을 열 이름(Key)으로 매핑
+            skipEmptyLines: true, // 빈 줄은 건너뜀
+            complete: function(results) {
+                carData = results.data;
+                // 로드가 완료되면 검색창을 활성화하고 테이블을 그림
+                document.getElementById('searchInput').disabled = false;
+                renderTable(carData);
+            },
+            error: function(err) {
+                document.getElementById('tableBody').innerHTML = `<tr><td class="status-msg" style="color:red;">데이터를 불러오지 못했습니다. 구글 시트 '웹에 게시' 설정을 다시 확인해주세요.</td></tr>`;
+            }
+        });
+    };
+
+    // 사용자가 검색창에 입력할 때마다 실시간 필터링 수행
+    document.getElementById('searchInput').addEventListener('input', function(e) {
+        const keyword = e.target.value.toLowerCase().trim();
+        
+        // 검색어가 없으면 전체 데이터 표시
+        if (!keyword) { 
+            renderTable(carData); 
+            return; 
+        }
+
+        // 행 데이터 중 하나라도 검색어를 포함하고 있으면 필터링에 포함
+        const filtered = carData.filter(row => {
+            return Object.values(row).some(val => String(val).toLowerCase().includes(keyword));
+        });
+        
+        renderTable(filtered);
+    });
+
+    // 데이터를 테이블 HTML 형식으로 바꾸어 화면에 뿌려주는 함수
+    function renderTable(data) {
+        const thead = document.getElementById('tableHead');
+        const tbody = document.getElementById('tableBody');
+        thead.innerHTML = ''; 
+        tbody.innerHTML = '';
+
+        if (data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="100" class="status-msg">검색 결과가 없습니다.</td></tr>`;
+            return;
+        }
+
+        // 구글 시트 첫 행을 기준으로 테이블 헤더(Th) 자동 생성
+        const headers = Object.keys(data[0]);
+        const trHead = document.createElement('tr');
+        headers.forEach(h => { 
+            const th = document.createElement('th'); 
+            th.textContent = h; 
+            trHead.appendChild(th); 
+        });
+        thead.appendChild(trHead);
+
+        // 데이터 행(Td) 생성
+        data.forEach(row => {
+            const trBody = document.createElement('tr');
+            headers.forEach(h => { 
+                const td = document.createElement('td'); 
+                td.textContent = row[h]; 
+                trBody.appendChild(td); 
+            });
+            tbody.appendChild(trBody);
+        });
+    }
+</script>
+</body>
+</html>
